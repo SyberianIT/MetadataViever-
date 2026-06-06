@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "metadataviewer"
+version = "1.0.0"
+description = "Просмотр метаданных файлов с графическим интерфейсом (Tkinter)"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { file = "LICENSE" }
+authors = [{ name = "MetadataViewer" }]
+keywords = ["metadata", "exif", "gui", "tkinter", "viewer"]
+
+# Базовая версия работает только на стандартной библиотеке.
+dependencies = []
+
+[project.optional-dependencies]
+# Расширенное извлечение метаданных.
+full = ["Pillow>=10.0", "mutagen>=1.47", "pypdf>=4.0", "tkinterdnd2>=0.4"]
+dev = ["pytest>=7.0", "Pillow>=10.0"]
+
+[project.scripts]
+metadataviewer = "metadataviewer.__main__:main"
+
+[tool.setuptools]
+packages = ["metadataviewer"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
