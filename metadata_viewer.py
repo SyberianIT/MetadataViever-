@@ -2,16 +2,20 @@
 """
 Запуск MetadataViewer.
 
-    python3 metadata_viewer.py [путь_к_файлу]
+    python3 metadata_viewer.py                 # графический интерфейс
+    python3 metadata_viewer.py файл.jpg        # метаданные в терминал
+    python3 metadata_viewer.py файл.jpg --gui  # открыть файл в окне
+    python3 metadata_viewer.py --help          # все опции CLI
 
-Это тонкая обёртка над пакетом metadataviewer. Вся логика находится в
-metadataviewer/extractors.py (извлечение метаданных) и
-metadataviewer/app.py (графический интерфейс).
+Логика разнесена по пакету metadataviewer:
+    extractors.py — извлечение/очистка метаданных (без GUI, покрыто тестами);
+    app.py        — графический интерфейс Tkinter;
+    cli.py        — интерфейс командной строки.
 """
 
 import sys
 
-from metadataviewer.app import run
+from metadataviewer.cli import main
 
 if __name__ == "__main__":
-    run(sys.argv[1] if len(sys.argv) > 1 else None)
+    sys.exit(main())

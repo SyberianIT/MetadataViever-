@@ -13,6 +13,9 @@ import hashlib
 import mimetypes
 import os
 import stat
+import struct
+import xml.etree.ElementTree as ET
+import zipfile
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
@@ -219,6 +222,8 @@ def get_image_metadata(path: str) -> Optional[Category]:
                     fields[f"EXIF: {tag}"] = text
                 fields.update(_extract_gps(exif))
             return Category("Изображение", fields)
+    except Image.UnidentifiedImageError:
+        return None  # не изображение — молча пропускаем
     except Exception as exc:  # noqa: BLE001
         return Category("Изображение", {"Ошибка обработки": str(exc)})
 
@@ -299,16 +304,170 @@ def get_text_metadata(path: str) -> Optional[Category]:
     return None
 
 
+def _iter_boxes(fh, start: int, end: int):
+    """Итерирует ISO-BMFF (MP4/MOV) боксы в диапазоне [start, end)."""
+    fh.seek(start)
+    while fh.tell() < end:
+        pos = fh.tell()
+        header = fh.read(8)
+        if len(header) < 8:
+            break
+        size = int.from_bytes(header[:4], "big")
+        box_type = header[4:8]
+        header_len = 8
+        if size == 1:  # 64-битный размер
+            size = int.from_bytes(fh.read(8), "big")
+            header_len = 16
+        elif size == 0:  # бокс до конца файла
+            size = end - pos
+        if size < header_len:
+            break
+        yield pos, box_type, header_len, size
+        fh.seek(pos + size)
+
+
+def get_video_metadata(path: str) -> Optional[Category]:
+    """Длительность и размеры видео MP4/MOV (парсинг moov без зависимостей)."""
+    if os.path.splitext(path)[1].lower() not in {".mp4", ".m4v", ".mov"}:
+        return None
+    try:
+        fields: dict = {}
+        file_size = os.path.getsize(path)
+        with open(path, "rb") as fh:
+            for pos, btype, hlen, size in _iter_boxes(fh, 0, file_size):
+                if btype != b"moov":
+                    continue
+                for mpos, mtype, mhlen, msize in _iter_boxes(fh, pos + hlen, pos + size):
+                    if mtype == b"mvhd":
+                        fh.seek(mpos + mhlen)
+                        version = fh.read(1)[0]
+                        fh.read(3)  # flags
+                        if version == 1:
+                            fh.read(16)  # creation + modification (8+8)
+                            timescale = int.from_bytes(fh.read(4), "big")
+                            duration = int.from_bytes(fh.read(8), "big")
+                        else:
+                            fh.read(8)  # creation + modification (4+4)
+                            timescale = int.from_bytes(fh.read(4), "big")
+                            duration = int.from_bytes(fh.read(4), "big")
+                        if timescale:
+                            secs = duration / timescale
+                            mins, s = divmod(int(secs), 60)
+                            hours, mins = divmod(mins, 60)
+                            fields["Длительность"] = (
+                                f"{hours}:{mins:02d}:{s:02d}" if hours
+                                else f"{mins}:{s:02d}"
+                            ) + f" ({secs:.1f} c)"
+                    elif mtype == b"trak":
+                        for tpos, ttype, thlen, tsize in _iter_boxes(fh, mpos + mhlen, mpos + msize):
+                            if ttype == b"tkhd":
+                                fh.seek(tpos + thlen)
+                                payload = fh.read(tsize - thlen)
+                                if len(payload) >= 8:
+                                    w = int.from_bytes(payload[-8:-4], "big") >> 16
+                                    h = int.from_bytes(payload[-4:], "big") >> 16
+                                    if w and h:
+                                        fields.setdefault("Размеры", f"{w} x {h} px")
+                break
+        return Category("Видео", fields) if fields else None
+    except Exception as exc:  # noqa: BLE001
+        return Category("Видео", {"Ошибка обработки": str(exc)})
+
+
+# Имена тегов Office Open XML -> человекочитаемые подписи.
+_OFFICE_TAGS = {
+    "title": "Заголовок", "subject": "Тема", "creator": "Автор",
+    "keywords": "Ключевые слова", "description": "Описание",
+    "lastModifiedBy": "Изменил", "revision": "Ревизия",
+    "created": "Создан", "modified": "Изменён", "category": "Категория",
+    "Application": "Приложение", "Company": "Компания", "Pages": "Страниц",
+    "Words": "Слов", "Characters": "Символов", "Lines": "Строк",
+    "Paragraphs": "Абзацев", "Slides": "Слайдов", "AppVersion": "Версия приложения",
+}
+
+
+def get_office_metadata(path: str) -> Optional[Category]:
+    """Метаданные документов Office Open XML (docx, xlsx, pptx) — без зависимостей."""
+    if os.path.splitext(path)[1].lower() not in {".docx", ".xlsx", ".pptx"}:
+        return None
+    try:
+        fields: dict = {}
+        with zipfile.ZipFile(path) as zf:
+            names = set(zf.namelist())
+            for part in ("docProps/core.xml", "docProps/app.xml"):
+                if part not in names:
+                    continue
+                root = ET.fromstring(zf.read(part))
+                for elem in root.iter():
+                    tag = elem.tag.split("}")[-1]  # убираем namespace
+                    if tag in _OFFICE_TAGS and elem.text and elem.text.strip():
+                        fields[_OFFICE_TAGS[tag]] = elem.text.strip()
+        return Category("Документ Office", fields) if fields else None
+    except (zipfile.BadZipFile, ET.ParseError, OSError) as exc:
+        return Category("Документ Office", {"Ошибка обработки": str(exc)})
+
+
+def get_archive_metadata(path: str) -> Optional[Category]:
+    """Содержимое ZIP-архива (и форматов на его основе) — без зависимостей."""
+    if not zipfile.is_zipfile(path):
+        return None
+    # Office-документы тоже ZIP, но для них есть отдельный экстрактор.
+    if os.path.splitext(path)[1].lower() in {".docx", ".xlsx", ".pptx"}:
+        return None
+    try:
+        with zipfile.ZipFile(path) as zf:
+            infos = zf.infolist()
+            total = sum(i.file_size for i in infos)
+            compressed = sum(i.compress_size for i in infos)
+            ratio = (1 - compressed / total) * 100 if total else 0
+            sample = ", ".join(i.filename for i in infos[:5])
+            if len(infos) > 5:
+                sample += f" … (+{len(infos) - 5})"
+            return Category(
+                "Архив (ZIP)",
+                {
+                    "Файлов внутри": len(infos),
+                    "Размер распакованный": human_size(total),
+                    "Размер сжатый": human_size(compressed),
+                    "Степень сжатия": f"{ratio:.1f} %",
+                    "Содержимое": sample or "(пусто)",
+                },
+            )
+    except (zipfile.BadZipFile, OSError) as exc:
+        return Category("Архив (ZIP)", {"Ошибка обработки": str(exc)})
+
+
+def get_hex_header(path: str, length: int = 64) -> Category:
+    """Hex-дамп первых байтов файла."""
+    try:
+        with open(path, "rb") as fh:
+            data = fh.read(length)
+    except OSError as exc:
+        return Category("Hex-заголовок", {"Ошибка чтения": str(exc)})
+    lines = {}
+    for i in range(0, len(data), 16):
+        chunk = data[i:i + 16]
+        hex_part = " ".join(f"{b:02x}" for b in chunk)
+        ascii_part = "".join(chr(b) if 32 <= b < 127 else "." for b in chunk)
+        lines[f"{i:04x}"] = f"{hex_part:<47}  {ascii_part}"
+    return Category("Hex-заголовок", lines or {"(пусто)": ""})
+
+
 # Порядок имеет значение: специфичные экстракторы идут после файловой системы.
 _EXTRACTORS = (
     get_image_metadata,
     get_audio_metadata,
+    get_video_metadata,
     get_pdf_metadata,
+    get_office_metadata,
+    get_archive_metadata,
     get_text_metadata,
 )
 
 
-def collect_metadata(path: str, include_hashes: bool = True) -> list[Category]:
+def collect_metadata(
+    path: str, include_hashes: bool = True, include_hex: bool = False
+) -> list[Category]:
     """Собирает все доступные метаданные в виде списка категорий."""
     if not os.path.isfile(path):
         raise FileNotFoundError(path)
@@ -320,7 +479,35 @@ def collect_metadata(path: str, include_hashes: bool = True) -> list[Category]:
             categories.append(result)
     if include_hashes:
         categories.append(get_hashes(path))
+    if include_hex:
+        categories.append(get_hex_header(path))
     return categories
+
+
+def metadata_to_dict(categories: list[Category]) -> dict:
+    """Категории -> вложенный словарь (для JSON-экспорта)."""
+    return {c.name: {k: str(v) for k, v in c.fields.items()} for c in categories}
+
+
+def strip_metadata(path: str, out_path: Optional[str] = None) -> str:
+    """
+    Удаляет метаданные (EXIF/GPS и пр.) из изображения, сохраняя пиксели.
+    Возвращает путь к очищенной копии. Требует Pillow.
+
+    Полезно для приватности: убирает геолокацию, модель камеры, даты съёмки.
+    """
+    if not HAS_PIL:
+        raise RuntimeError("Для очистки метаданных нужна библиотека Pillow")
+    if out_path is None:
+        base, ext = os.path.splitext(path)
+        out_path = f"{base}_clean{ext}"
+    with Image.open(path) as img:
+        # Пересоздаём изображение только из пиксельных данных — метаданные теряются.
+        clean = Image.frombytes(img.mode, img.size, img.tobytes())
+        if img.mode == "P":
+            clean.putpalette(img.getpalette())
+        clean.save(out_path)
+    return out_path
 
 
 def module_status() -> dict[str, bool]:
