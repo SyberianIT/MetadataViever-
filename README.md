@@ -90,6 +90,35 @@ metadata_viewer.py  # тонкая обёртка для запуска
 tests/              # pytest-тесты (extractors + CLI)
 ```
 
+## Скачать готовую сборку
+
+Готовые **standalone-исполняемые файлы** (без установки Python) для Windows, Linux
+и macOS, а также Python-пакет (wheel) публикуются на странице
+[**Releases**](../../releases) при каждом теге `v*`.
+
+| Платформа | Файл | Запуск |
+|-----------|------|--------|
+| Windows | `MetadataViewer-windows.exe` | двойной клик или `MetadataViewer-windows.exe файл.jpg` |
+| Linux | `MetadataViewer-linux` | `chmod +x MetadataViewer-linux && ./MetadataViewer-linux` |
+| macOS | `MetadataViewer-macos` | `chmod +x MetadataViewer-macos && ./MetadataViewer-macos` |
+
+Сборка релиза автоматизирована в `.github/workflows/release.yml`: пуш тега
+запускает PyInstaller на трёх ОС и прикладывает артефакты к релизу.
+
+```bash
+# выпустить новую версию
+git tag v1.1.0
+git push origin v1.1.0
+```
+
+Собрать исполняемый файл локально:
+
+```bash
+pip install pyinstaller -r requirements.txt
+pyinstaller --onefile --name MetadataViewer --collect-submodules metadataviewer metadata_viewer.py
+# результат: dist/MetadataViewer
+```
+
 ## Тесты
 
 ```bash
