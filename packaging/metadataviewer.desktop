@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=MetadataViewer
+GenericName=Metadata Viewer
+Comment=Просмотр метаданных файлов (EXIF/GPS, аудио, видео, PDF, Office)
+Exec=metadataviewer %f
+Terminal=false
+Categories=Utility;Graphics;
+Icon=metadataviewer
+Keywords=metadata;exif;gps;image;audio;pdf;

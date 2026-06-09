@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+import webbrowser
 
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
@@ -103,6 +104,11 @@ class MetadataViewerApp:
         ttk.Button(bar, text="📂 Открыть", command=self.open_file).pack(side=tk.LEFT)
         ttk.Button(bar, text="⟳ Обновить", command=self.refresh).pack(side=tk.LEFT, padx=(6, 0))
         ttk.Button(bar, text="🌓 Тема", command=self.toggle_theme).pack(side=tk.LEFT, padx=(6, 0))
+        self.map_btn = ttk.Button(bar, text="🗺 На карту", command=self.open_map, state="disabled")
+        self.map_btn.pack(side=tk.LEFT, padx=(6, 0))
+        self.clean_btn = ttk.Button(bar, text="🧹 Очистить EXIF", command=self.strip_current,
+                                    state="disabled")
+        self.clean_btn.pack(side=tk.LEFT, padx=(6, 0))
 
         ttk.Label(bar, text="Поиск:").pack(side=tk.LEFT, padx=(16, 4))
         self.search_var = tk.StringVar()
@@ -213,8 +219,45 @@ class MetadataViewerApp:
         self._populate_tree()
         self._update_preview(path)
         self._update_summary()
+        self._update_actions()
         self._set_status(f"Загружено: {os.path.basename(path)}")
         self._compute_hashes_async(path)
+
+    def _gps_url(self) -> str | None:
+        for cat in self.categories:
+            url = cat.fields.get("GPS на карте")
+            if url:
+                return str(url)
+        return None
+
+    def _is_image_loaded(self) -> bool:
+        return any(c.name == "Изображение" for c in self.categories)
+
+    def _update_actions(self):
+        self.map_btn.configure(state="normal" if self._gps_url() else "disabled")
+        can_clean = self._is_image_loaded() and extractors.HAS_PIL
+        self.clean_btn.configure(state="normal" if can_clean else "disabled")
+
+    def open_map(self):
+        url = self._gps_url()
+        if url:
+            webbrowser.open(url)
+            self._set_status("Открываю координаты на карте…")
+
+    def strip_current(self):
+        if not self.current_path:
+            return
+        try:
+            out = extractors.strip_metadata(self.current_path)
+        except Exception as exc:  # noqa: BLE001
+            messagebox.showerror("Ошибка", f"Не удалось очистить метаданные:\n{exc}")
+            return
+        self._set_status(f"Создана очищенная копия: {out}")
+        if messagebox.askyesno(
+            "Готово",
+            f"Метаданные удалены. Сохранена копия:\n{out}\n\nОткрыть её?",
+        ):
+            self.load_file(out)
 
     def _compute_hashes_async(self, path: str):
         """Хеши больших файлов считаем в фоне, не блокируя интерфейс."""

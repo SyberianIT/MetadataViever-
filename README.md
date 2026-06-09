@@ -15,18 +15,36 @@
 | **Файловая система** | размер, MIME-тип, тип по сигнатуре (magic bytes), даты, права, владелец, inode | — (всегда) |
 | **Изображения** | превью, формат, размеры, мегапиксели, DPI, **EXIF**, **GPS-координаты** + ссылка на карту | `Pillow` |
 | **Аудио** | длительность, битрейт, частота, каналы, теги (MP3/FLAC/OGG/M4A…) | `mutagen` |
+| **Видео** | длительность и размеры MP4/MOV (парсинг `moov`) | — (всегда) |
 | **PDF** | число страниц, шифрование, автор, заголовок, создатель | `pypdf` |
+| **Документы Office** | автор, заголовок, даты, приложение, статистика (docx/xlsx/pptx) | — (всегда) |
+| **Архивы ZIP** | число файлов, степень сжатия, содержимое | — (всегда) |
 | **Текст** | кодировка, число строк/слов/символов | — (всегда) |
+| **Hex-заголовок** | дамп первых байтов (hex + ASCII) | — (всегда) |
 | **Контрольные суммы** | MD5, SHA-256 (считаются в фоне) | — (всегда) |
 
-Интерфейс:
+Интерфейс (GUI):
 - 🖼 **превью** изображений в боковой панели;
 - 🔍 **поиск/фильтр** по всем свойствам в реальном времени;
+- 🧹 **очистка метаданных** одной кнопкой (удаление EXIF/GPS — приватность);
+- 🗺 **открыть GPS-координаты на карте** в браузере;
 - 📋 **копирование** значения/свойства/строки (двойной клик, `Ctrl+C`, контекстное меню);
 - 🌓 **светлая и тёмная** темы (`Ctrl+T`);
 - 💾 **экспорт** отчёта в **TXT** и **JSON**;
 - 🕘 **недавние файлы**, **drag-and-drop**, горячие клавиши;
 - ⚙️ хеши больших файлов считаются **асинхронно** — интерфейс не зависает.
+
+### Режим командной строки (CLI)
+
+Работает в пайплайнах и скриптах, без графики:
+
+```bash
+metadataviewer photo.jpg                 # метаданные в терминал
+metadataviewer *.jpg --json -o out.json  # пакетно в JSON-файл
+metadataviewer photo.jpg --strip         # удалить EXIF/GPS (копия *_clean)
+metadataviewer file.bin --hex --hash     # с hex-заголовком и хешами
+metadataviewer report.docx               # автор/даты документа Office
+```
 
 ## Установка
 
@@ -64,11 +82,48 @@ metadataviewer                             # после pip install -e .
 
 ```
 metadataviewer/
-    extractors.py   # извлечение метаданных (без GUI, покрыто тестами)
+    extractors.py   # извлечение/очистка метаданных (без GUI, покрыто тестами)
     app.py          # графический интерфейс Tkinter
+    cli.py          # интерфейс командной строки
     __main__.py     # точка входа: python -m metadataviewer
 metadata_viewer.py  # тонкая обёртка для запуска
-tests/              # pytest-тесты логики извлечения
+tests/              # pytest-тесты (extractors + CLI)
+```
+
+## Скачать готовую сборку
+
+Готовые **standalone-исполняемые файлы** (без установки Python) для Windows, Linux
+и macOS, а также Python-пакет (wheel) публикуются на странице
+[**Releases**](../../releases) при каждом теге `v*`.
+
+| Платформа | Файл | Запуск |
+|-----------|------|--------|
+| Windows | `MetadataViewer-windows.exe` | двойной клик или `MetadataViewer-windows.exe файл.jpg` |
+| Linux (.deb) | `metadataviewer_1.1.0_all.deb` | `sudo apt install ./metadataviewer_1.1.0_all.deb`, затем `metadataviewer` |
+| Linux (бинарь) | `MetadataViewer-linux` | `chmod +x MetadataViewer-linux && ./MetadataViewer-linux` |
+| macOS | `MetadataViewer-macos` | `chmod +x MetadataViewer-macos && ./MetadataViewer-macos` |
+
+Собрать `.deb` локально (нужен `dpkg-deb`):
+
+```bash
+bash packaging/build_deb.sh          # -> dist/metadataviewer_<версия>_all.deb
+```
+
+Сборка релиза автоматизирована в `.github/workflows/release.yml`: пуш тега
+запускает PyInstaller на трёх ОС и прикладывает артефакты к релизу.
+
+```bash
+# выпустить новую версию
+git tag v1.1.0
+git push origin v1.1.0
+```
+
+Собрать исполняемый файл локально:
+
+```bash
+pip install pyinstaller -r requirements.txt
+pyinstaller --onefile --name MetadataViewer --collect-submodules metadataviewer metadata_viewer.py
+# результат: dist/MetadataViewer
 ```
 
 ## Тесты

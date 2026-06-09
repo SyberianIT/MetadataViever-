@@ -3,3 +3,9 @@ __pycache__/
 *.egg-info/
 .venv/
 venv/
+
+# Артефакты сборки (PyInstaller / build)
+build/
+dist/
+*.spec
+*.manifest

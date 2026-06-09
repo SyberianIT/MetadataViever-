@@ -1,0 +1,8 @@
+#!/usr/bin/python3
+"""Системный лаунчер MetadataViewer (устанавливается как /usr/bin/metadataviewer)."""
+import sys
+
+from metadataviewer.cli import main
+
+if __name__ == "__main__":
+    sys.exit(main())

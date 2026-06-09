@@ -1,14 +1,8 @@
-"""Точка входа: python -m metadataviewer [файл]"""
+"""Точка входа: python -m metadataviewer [файлы...] [опции]"""
 
 import sys
 
-from .app import run
-
-
-def main():
-    initial = sys.argv[1] if len(sys.argv) > 1 else None
-    run(initial)
-
+from .cli import main
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

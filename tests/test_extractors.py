@@ -91,3 +91,115 @@ def test_module_status_keys():
     status = extractors.module_status()
     assert set(status) == {"Pillow", "mutagen", "pypdf"}
     assert all(isinstance(v, bool) for v in status.values())
+
+
+# --- Архивы ----------------------------------------------------------------
+def test_archive_metadata(tmp_path):
+    import zipfile
+
+    archive = tmp_path / "bundle.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("a.txt", "hello")
+        zf.writestr("b.txt", "world!!!")
+    cat = extractors.get_archive_metadata(str(archive))
+    assert cat is not None
+    assert cat.fields["Файлов внутри"] == 2
+    assert "a.txt" in cat.fields["Содержимое"]
+
+
+# --- Office ----------------------------------------------------------------
+def test_office_metadata(tmp_path):
+    import zipfile
+
+    core = (
+        '<?xml version="1.0"?>'
+        '<cp:coreProperties xmlns:cp="x" xmlns:dc="http://purl.org/dc/elements/1.1/">'
+        "<dc:creator>Иван</dc:creator><dc:title>Отчёт</dc:title>"
+        "</cp:coreProperties>"
+    )
+    docx = tmp_path / "doc.docx"
+    with zipfile.ZipFile(docx, "w") as zf:
+        zf.writestr("docProps/core.xml", core)
+    cat = extractors.get_office_metadata(str(docx))
+    assert cat is not None
+    assert cat.fields["Автор"] == "Иван"
+    assert cat.fields["Заголовок"] == "Отчёт"
+    # docx не должен попадать в общий ZIP-экстрактор
+    assert extractors.get_archive_metadata(str(docx)) is None
+
+
+# --- Видео MP4 -------------------------------------------------------------
+def _build_minimal_mp4(timescale: int, duration: int) -> bytes:
+    import struct
+
+    # mvhd (version 0): version+flags(4) + creation(4)+mod(4) + timescale(4)+duration(4)
+    mvhd_payload = b"\x00\x00\x00\x00" + b"\x00" * 8 + struct.pack(">II", timescale, duration)
+    mvhd = struct.pack(">I", 8 + len(mvhd_payload)) + b"mvhd" + mvhd_payload
+    moov = struct.pack(">I", 8 + len(mvhd)) + b"moov" + mvhd
+    ftyp = struct.pack(">I", 16) + b"ftyp" + b"isom" + b"\x00" * 4
+    return ftyp + moov
+
+
+def test_video_metadata(tmp_path):
+    video = tmp_path / "clip.mp4"
+    video.write_bytes(_build_minimal_mp4(timescale=1000, duration=5000))
+    cat = extractors.get_video_metadata(str(video))
+    assert cat is not None
+    assert "0:05" in cat.fields["Длительность"]
+    assert "5.0 c" in cat.fields["Длительность"]
+
+
+def test_video_metadata_ignores_non_video(tmp_path):
+    f = tmp_path / "note.txt"
+    f.write_text("not a video")
+    assert extractors.get_video_metadata(str(f)) is None
+
+
+# --- Hex-заголовок ---------------------------------------------------------
+def test_hex_header(tmp_path):
+    f = tmp_path / "raw.bin"
+    f.write_bytes(bytes(range(32)))
+    cat = extractors.get_hex_header(str(f), length=16)
+    assert cat.name == "Hex-заголовок"
+    assert "0000" in cat.fields
+    assert "00 01 02 03" in cat.fields["0000"]
+
+
+# --- Очистка метаданных ----------------------------------------------------
+@pytest.mark.skipif(not extractors.HAS_PIL, reason="нужен Pillow")
+def test_strip_metadata(tmp_path):
+    from PIL import Image
+
+    src = tmp_path / "img.png"
+    Image.new("RGB", (10, 10), "red").save(src)
+    out = extractors.strip_metadata(str(src))
+    assert os.path.isfile(out)
+    with Image.open(out) as cleaned:
+        assert cleaned.size == (10, 10)
+        assert len(dict(cleaned.getexif())) == 0
+
+
+# --- collect_metadata с hex ------------------------------------------------
+def test_collect_metadata_with_hex(tmp_path):
+    f = tmp_path / "x.bin"
+    f.write_bytes(b"\x00\x01\x02")
+    cats = extractors.collect_metadata(str(f), include_hex=True)
+    assert any(c.name == "Hex-заголовок" for c in cats)
+
+
+@pytest.mark.skipif(not extractors.HAS_PIL, reason="нужен Pillow")
+def test_image_extractor_skips_non_image(tmp_path):
+    f = tmp_path / "code.py"
+    f.write_text("print('hello')\n", encoding="utf-8")
+    # Не изображение -> None, без категории «Ошибка обработки»
+    assert extractors.get_image_metadata(str(f)) is None
+    names = [c.name for c in extractors.collect_metadata(str(f))]
+    assert "Изображение" not in names
+
+
+def test_metadata_to_dict(tmp_path):
+    f = tmp_path / "x.txt"
+    f.write_text("hi")
+    d = extractors.metadata_to_dict(extractors.collect_metadata(str(f)))
+    assert "Файловая система" in d
+    assert isinstance(d["Файловая система"], dict)
