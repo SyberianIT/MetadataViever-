@@ -99,8 +99,15 @@ tests/              # pytest-тесты (extractors + CLI)
 | Платформа | Файл | Запуск |
 |-----------|------|--------|
 | Windows | `MetadataViewer-windows.exe` | двойной клик или `MetadataViewer-windows.exe файл.jpg` |
-| Linux | `MetadataViewer-linux` | `chmod +x MetadataViewer-linux && ./MetadataViewer-linux` |
+| Linux (.deb) | `metadataviewer_1.1.0_all.deb` | `sudo apt install ./metadataviewer_1.1.0_all.deb`, затем `metadataviewer` |
+| Linux (бинарь) | `MetadataViewer-linux` | `chmod +x MetadataViewer-linux && ./MetadataViewer-linux` |
 | macOS | `MetadataViewer-macos` | `chmod +x MetadataViewer-macos && ./MetadataViewer-macos` |
+
+Собрать `.deb` локально (нужен `dpkg-deb`):
+
+```bash
+bash packaging/build_deb.sh          # -> dist/metadataviewer_<версия>_all.deb
+```
 
 Сборка релиза автоматизирована в `.github/workflows/release.yml`: пуш тега
 запускает PyInstaller на трёх ОС и прикладывает артефакты к релизу.

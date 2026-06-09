@@ -71,6 +71,34 @@ jobs:
           files: dist/${{ matrix.asset }}
           generate_release_notes: true
 
+  # --- Debian-пакет (.deb) -------------------------------------------------
+  build-deb:
+    name: Сборка .deb
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Установка Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Сборка .deb
+        run: bash packaging/build_deb.sh
+
+      - name: Загрузка как артефакт сборки
+        uses: actions/upload-artifact@v4
+        with:
+          name: deb-package
+          path: dist/*.deb
+
+      - name: Публикация в релиз
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          files: dist/*.deb
+          generate_release_notes: true
+
   # --- Python-пакет (wheel + sdist) ----------------------------------------
   build-wheel:
     name: Сборка Python-пакета
